@@ -42,7 +42,11 @@ import (
 	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/storage"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	utilfeaturetesting "k8s.io/apiserver/pkg/util/feature/testing"
+	featuregatetesting "k8s.io/component-base/featuregate/testing"
+)
+
+var (
+	objectType = reflect.TypeOf(&v1.Pod{})
 )
 
 // verifies the cacheWatcher.process goroutine is properly cleaned up even if
@@ -67,7 +71,7 @@ func TestCacheWatcherCleanupNotBlockedByResult(t *testing.T) {
 	}
 	// set the size of the buffer of w.result to 0, so that the writes to
 	// w.result is blocked.
-	w = newCacheWatcher(0, filter, forget, testVersioner{}, time.Now(), false)
+	w = newCacheWatcher(0, filter, forget, testVersioner{}, time.Now(), false, objectType)
 	go w.process(context.Background(), initEvents, 0)
 	w.Stop()
 	if err := wait.PollImmediate(1*time.Second, 5*time.Second, func() (bool, error) {
@@ -187,7 +191,7 @@ TestCase:
 			testCase.events[j].ResourceVersion = uint64(j) + 1
 		}
 
-		w := newCacheWatcher(0, filter, forget, testVersioner{}, time.Now(), false)
+		w := newCacheWatcher(0, filter, forget, testVersioner{}, time.Now(), false, objectType)
 		go w.process(context.Background(), testCase.events, 0)
 
 		ch := w.ResultChan()
@@ -213,13 +217,14 @@ type testVersioner struct{}
 func (testVersioner) UpdateObject(obj runtime.Object, resourceVersion uint64) error {
 	return meta.NewAccessor().SetResourceVersion(obj, strconv.FormatUint(resourceVersion, 10))
 }
-func (testVersioner) UpdateList(obj runtime.Object, resourceVersion uint64, continueValue string) error {
+func (testVersioner) UpdateList(obj runtime.Object, resourceVersion uint64, continueValue string, count int64) error {
 	listAccessor, err := meta.ListAccessor(obj)
 	if err != nil || listAccessor == nil {
 		return err
 	}
 	listAccessor.SetResourceVersion(strconv.FormatUint(resourceVersion, 10))
 	listAccessor.SetContinue(continueValue)
+	listAccessor.SetRemainingItemCount(count)
 	return nil
 }
 func (testVersioner) PrepareObjectForStorage(obj runtime.Object) error {
@@ -466,7 +471,7 @@ func TestCacheWatcherStoppedInAnotherGoroutine(t *testing.T) {
 	// timeout to zero and run the Stop goroutine concurrently.
 	// May sure that the watch will not be blocked on Stop.
 	for i := 0; i < maxRetriesToProduceTheRaceCondition; i++ {
-		w = newCacheWatcher(0, filter, forget, testVersioner{}, time.Now(), false)
+		w = newCacheWatcher(0, filter, forget, testVersioner{}, time.Now(), false, objectType)
 		go w.Stop()
 		select {
 		case <-done:
@@ -478,7 +483,7 @@ func TestCacheWatcherStoppedInAnotherGoroutine(t *testing.T) {
 	deadline := time.Now().Add(time.Hour)
 	// After that, verifies the cacheWatcher.process goroutine works correctly.
 	for i := 0; i < maxRetriesToProduceTheRaceCondition; i++ {
-		w = newCacheWatcher(2, filter, emptyFunc, testVersioner{}, deadline, false)
+		w = newCacheWatcher(2, filter, emptyFunc, testVersioner{}, deadline, false, objectType)
 		w.input <- &watchCacheEvent{Object: &v1.Pod{}, ResourceVersion: uint64(i + 1)}
 		ctx, _ := context.WithDeadline(context.Background(), deadline)
 		go w.process(ctx, nil, 0)
@@ -498,7 +503,7 @@ func TestTimeBucketWatchersBasic(t *testing.T) {
 	forget := func() {}
 
 	newWatcher := func(deadline time.Time) *cacheWatcher {
-		return newCacheWatcher(0, filter, forget, testVersioner{}, deadline, true)
+		return newCacheWatcher(0, filter, forget, testVersioner{}, deadline, true, objectType)
 	}
 
 	clock := clock.NewFakeClock(time.Now())
@@ -534,7 +539,7 @@ func TestTimeBucketWatchersBasic(t *testing.T) {
 }
 
 func testCacherSendBookmarkEvents(t *testing.T, watchCacheEnabled, allowWatchBookmarks, expectedBookmarks bool) {
-	defer utilfeaturetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.WatchBookmark, watchCacheEnabled)()
+	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.WatchBookmark, watchCacheEnabled)()
 	backingStorage := &dummyStorage{}
 	cacher, _ := newTestCacher(backingStorage, 1000)
 	defer cacher.Stop()
@@ -633,7 +638,7 @@ func TestCacherSendBookmarkEvents(t *testing.T) {
 }
 
 func TestDispatchingBookmarkEventsWithConcurrentStop(t *testing.T) {
-	defer utilfeaturetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.WatchBookmark, true)()
+	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.WatchBookmark, true)()
 	backingStorage := &dummyStorage{}
 	cacher, _ := newTestCacher(backingStorage, 1000)
 	defer cacher.Stop()

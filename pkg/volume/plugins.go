@@ -842,7 +842,7 @@ func (pm *VolumePluginMgr) FindProvisionablePluginByName(name string) (Provision
 	return nil, fmt.Errorf("no provisionable volume plugin matched")
 }
 
-// FindDeletablePluginBySppec fetches a persistent volume plugin by spec.  If
+// FindDeletablePluginBySpec fetches a persistent volume plugin by spec.  If
 // no plugin is found, returns error.
 func (pm *VolumePluginMgr) FindDeletablePluginBySpec(spec *Spec) (DeletableVolumePlugin, error) {
 	volumePlugin, err := pm.FindPluginBySpec(spec)
@@ -1034,7 +1034,7 @@ func (pm *VolumePluginMgr) Run(stopCh <-chan struct{}) {
 		// start informer for CSIDriver
 		if utilfeature.DefaultFeatureGate.Enabled(features.CSIDriverRegistry) {
 			informerFactory := kletHost.GetInformerFactory()
-			go informerFactory.Start(stopCh)
+			informerFactory.Start(stopCh)
 		}
 	}
 }

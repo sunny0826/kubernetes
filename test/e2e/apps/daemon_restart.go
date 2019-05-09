@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,11 +33,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/kubernetes/pkg/master/ports"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2essh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	testutils "k8s.io/kubernetes/test/utils"
 	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	"github.com/onsi/ginkgo"
-	"github.com/onsi/gomega"
 )
 
 // This test primarily checks 2 things:
@@ -51,7 +51,6 @@ const (
 	restartPollInterval = 5 * time.Second
 	restartTimeout      = 10 * time.Minute
 	numPods             = 10
-	sshPort             = 22
 	// ADD represents the ADD event
 	ADD = "ADD"
 	// DEL represents the DEL event
@@ -95,7 +94,7 @@ func (r *RestartDaemonConfig) waitUp() {
 		"curl -s -o /dev/null -I -w \"%%{http_code}\" http://localhost:%v/healthz", r.healthzPort)
 
 	err := wait.Poll(r.pollInterval, r.pollTimeout, func() (bool, error) {
-		result, err := framework.NodeExec(r.nodeName, healthzCheck)
+		result, err := e2essh.NodeExec(r.nodeName, healthzCheck, framework.TestContext.Provider)
 		framework.ExpectNoError(err)
 		if result.Code == 0 {
 			httpCode, err := strconv.Atoi(result.Stdout)
@@ -115,8 +114,8 @@ func (r *RestartDaemonConfig) waitUp() {
 // kill sends a SIGTERM to the daemon
 func (r *RestartDaemonConfig) kill() {
 	framework.Logf("Killing %v", r)
-	_, err := framework.NodeExec(r.nodeName, fmt.Sprintf("pgrep %v | xargs -I {} sudo kill {}", r.daemonName))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	_, err := e2essh.NodeExec(r.nodeName, fmt.Sprintf("pgrep %v | xargs -I {} sudo kill {}", r.daemonName), framework.TestContext.Provider)
+	framework.ExpectNoError(err)
 }
 
 // Restart checks if the daemon is up, kills it, and waits till it comes back up
@@ -209,7 +208,7 @@ var _ = SIGDescribe("DaemonRestart [Disruptive]", func() {
 			Replicas:    numPods,
 			CreatedPods: &[]*v1.Pod{},
 		}
-		gomega.Expect(framework.RunRC(config)).NotTo(gomega.HaveOccurred())
+		framework.ExpectNoError(framework.RunRC(config))
 		replacePods(*config.CreatedPods, existingPods)
 
 		stopCh = make(chan struct{})
